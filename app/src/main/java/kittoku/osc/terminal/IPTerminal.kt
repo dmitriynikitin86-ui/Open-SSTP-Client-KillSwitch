@@ -80,7 +80,9 @@ internal class IPTerminal(private val bridge: SharedBridge) {
         bridge.builder.setMtu(bridge.PPP_MTU)
         bridge.builder.setBlocking(true)
 
-        fd = bridge.builder.establish()!!.also {
+        bridge.builder.addRoute("0.0.0.0", 0)
+            bridge.builder.addRoute("::", 0)
+            fd = bridge.builder.establish()!!.also {
             inputStream = FileInputStream(it.fileDescriptor)
             outputStream = FileOutputStream(it.fileDescriptor)
         }
@@ -159,6 +161,6 @@ internal class IPTerminal(private val bridge: SharedBridge) {
     }
 
     internal fun close() {
-        fd?.close()
+        // Hold FD for KillSwitch during reconnect
     }
 }

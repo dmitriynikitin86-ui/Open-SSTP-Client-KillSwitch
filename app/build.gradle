@@ -14,7 +14,7 @@ android {
         minSdk 23
         targetSdk 36
         versionCode 50
-        versionName "1.10.3"
+        versionName = "1.10.3-killswitch-mod"
 
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }

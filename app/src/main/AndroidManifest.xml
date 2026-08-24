@@ -65,5 +65,10 @@
                 android:name="android.service.quicksettings.ACTIVE_TILE"
                 android:value="true" />
         </service>
+    
+        <service
+            android:name=".service.FlushVpnService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false" />
     </application>
 </manifest>

@@ -1,0 +1,142 @@
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+new file mode 100644
+index 0000000..6d9468e
+--- /dev/null
++++ b/.github/workflows/build.yml
+@@ -0,0 +1,28 @@
++name: Build Debug APK
++
++on:
++  push:
++    branches: [ main, master ]
++  workflow_dispatch:
++
++jobs:
++  build:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - name: Set up JDK 17
++        uses: actions/setup-java@v4
++        with:
++          java-version: '17'
++          distribution: 'temurin'
++      - name: Setup Gradle
++        uses: gradle/actions/setup-gradle@v3
++      - name: Make gradlew executable
++        run: chmod +x gradlew
++      - name: Build Debug APK
++        run: ./gradlew assembleDebug
++      - name: Upload APK
++        uses: actions/upload-artifact@v4
++        with:
++          name: app-debug
++          path: app/build/outputs/apk/debug/app-debug.apk
+diff --git a/app/build.gradle b/app/build.gradle
+index da132c5..3625c2b 100644
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -14,7 +14,7 @@ android {
+         minSdk 23
+         targetSdk 36
+         versionCode 50
+-        versionName "1.10.3"
++        versionName = "1.10.3-killswitch-mod"
+ 
+         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+     }
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index b2d61a3..5828128 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -65,5 +65,10 @@
+                 android:name="android.service.quicksettings.ACTIVE_TILE"
+                 android:value="true" />
+         </service>
++    
++        <service
++            android:name=".service.FlushVpnService"
++            android:permission="android.permission.BIND_VPN_SERVICE"
++            android:exported="false" />
+     </application>
+ </manifest>
+diff --git a/app/src/main/java/kittoku/osc/preference/constant.kt b/app/src/main/java/kittoku/osc/preference/constant.kt
+index 263a41a..0718bb3 100644
+--- a/app/src/main/java/kittoku/osc/preference/constant.kt
++++ b/app/src/main/java/kittoku/osc/preference/constant.kt
+@@ -72,7 +72,7 @@ internal val DEFAULT_BOOLEAN_MAP = mapOf(
+     OscPrefKey.ROUTE_DO_ADD_CUSTOM_ROUTES to false,
+     OscPrefKey.ROUTE_DO_ENABLE_APP_BASED_RULE to false,
+     OscPrefKey.ROUTE_DO_SHOW_BACKGROUND_APPS to false,
+-    OscPrefKey.RECONNECTION_ENABLED to false,
++    OscPrefKey.RECONNECTION_ENABLED to true,
+     OscPrefKey.LOG_DO_SAVE_LOG to false
+ )
+ 
+@@ -82,8 +82,8 @@ internal val DEFAULT_INT_MAP = mapOf(
+     OscPrefKey.PPP_MRU to DEFAULT_MRU,
+     OscPrefKey.PPP_MTU to DEFAULT_MTU,
+     OscPrefKey.PPP_AUTH_TIMEOUT to 3,
+-    OscPrefKey.RECONNECTION_COUNT to 3,
+-    OscPrefKey.RECONNECTION_INTERVAL to 10,
++    OscPrefKey.RECONNECTION_COUNT to 999,
++    OscPrefKey.RECONNECTION_INTERVAL to 3,
+     OscPrefKey.RECONNECTION_LIFE to 0
+ )
+ 
+diff --git a/app/src/main/java/kittoku/osc/service/FlushVpnService.kt b/app/src/main/java/kittoku/osc/service/FlushVpnService.kt
+new file mode 100644
+index 0000000..32e1ba1
+--- /dev/null
++++ b/app/src/main/java/kittoku/osc/service/FlushVpnService.kt
+@@ -0,0 +1,15 @@
++package kittoku.osc.service
++
++import android.content.Intent
++import android.net.VpnService
++
++class FlushVpnService : VpnService() {
++    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
++        try {
++            // Поднимаем фейковый туннель на 10 мс, чтобы Android отозвал права у главного VPN
++            Builder().setSession("Flush").addAddress("192.0.2.1", 32).establish()?.close()
++        } catch (_: Exception) {}
++        stopSelf()
++        return START_NOT_STICKY
++    }
++}
+diff --git a/app/src/main/java/kittoku/osc/service/SstpVpnService.kt b/app/src/main/java/kittoku/osc/service/SstpVpnService.kt
+index aaa2d8e..6f6e959 100644
+--- a/app/src/main/java/kittoku/osc/service/SstpVpnService.kt
++++ b/app/src/main/java/kittoku/osc/service/SstpVpnService.kt
+@@ -123,6 +123,7 @@ internal class SstpVpnService : VpnService() {
+                 // ensure that reconnection has been completely canceled or done
+                 runBlocking { jobReconnect?.cancelAndJoin() }
+ 
++                startService(android.content.Intent(this, FlushVpnService::class.java))
+                 controller?.disconnect()
+                 controller = null
+ 
+diff --git a/app/src/main/java/kittoku/osc/terminal/IPTerminal.kt b/app/src/main/java/kittoku/osc/terminal/IPTerminal.kt
+index 66549b5..b0b4d47 100644
+--- a/app/src/main/java/kittoku/osc/terminal/IPTerminal.kt
++++ b/app/src/main/java/kittoku/osc/terminal/IPTerminal.kt
+@@ -80,7 +80,9 @@ internal class IPTerminal(private val bridge: SharedBridge) {
+         bridge.builder.setMtu(bridge.PPP_MTU)
+         bridge.builder.setBlocking(true)
+ 
+-        fd = bridge.builder.establish()!!.also {
++        bridge.builder.addRoute("0.0.0.0", 0)
++            bridge.builder.addRoute("::", 0)
++            fd = bridge.builder.establish()!!.also {
+             inputStream = FileInputStream(it.fileDescriptor)
+             outputStream = FileOutputStream(it.fileDescriptor)
+         }
+@@ -159,6 +161,6 @@ internal class IPTerminal(private val bridge: SharedBridge) {
+     }
+ 
+     internal fun close() {
+-        fd?.close()
++        // Hold FD for KillSwitch during reconnect
+     }
+ }

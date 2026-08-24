@@ -123,6 +123,7 @@ internal class SstpVpnService : VpnService() {
                 // ensure that reconnection has been completely canceled or done
                 runBlocking { jobReconnect?.cancelAndJoin() }
 
+                startService(android.content.Intent(this, FlushVpnService::class.java))
                 controller?.disconnect()
                 controller = null
 
